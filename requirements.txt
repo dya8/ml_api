@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-tensorflow
+tensorflow-cpu==2.13.0  # or the version you trained with
 numpy
 Pillow
 python-multipart
