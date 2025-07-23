@@ -1,9 +1,10 @@
-
 fastapi
 uvicorn
-tensorflow-cpu==2.11.0
+tensorflow-cpu==2.19.0
+tensorflow-hub
 numpy
 Pillow
 python-multipart
 opencv-python
-tensorflow-hub
+protobuf>=3.20.3,<4.21.0  # Compatible range for TF 2.19.0
+tensorboard==2.19.0        # Match required TensorBoard version
