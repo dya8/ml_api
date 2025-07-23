@@ -1,4 +1,4 @@
-
+python_version==3.10
 fastapi
 uvicorn
 tensorflow-cpu==2.10.0
