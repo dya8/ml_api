@@ -1,7 +1,7 @@
 
 fastapi
 uvicorn
-tensorflow==2.10.0
+tensorflow==2.18.0
 numpy
 Pillow
 python-multipart
