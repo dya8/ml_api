@@ -75,3 +75,5 @@ async def predict(image: UploadFile = File(...)):
         "detections": detected,
         "class_counts": dict(count)
     }
+import os
+print("FastAPI running on port:", os.environ.get("PORT", "8000"))
