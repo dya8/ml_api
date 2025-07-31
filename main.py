@@ -3,82 +3,73 @@ import tensorflow as tf
 import tensorflow_hub as hub
 import numpy as np
 from PIL import Image
-import io
-import os
-import uvicorn
-import cv2
+import io, os, uvicorn, cv2
 from collections import Counter
 
 app = FastAPI()
 
-# === STEP 1: Load model from TensorFlow Hub (Kaggle hosted) ===
-print("Loading model from TensorFlow Hub...")
-hub_model = hub.load("https://www.kaggle.com/models/google/circularnet/TensorFlow2/1/1")
-hub_model_fn = hub_model.signatures["serving_default"]
-
-# Get input size
-height = hub_model_fn.structured_input_signature[1]['inputs'].shape[1]
-width = hub_model_fn.structured_input_signature[1]['inputs'].shape[2]
-input_size = (height, width)
-print(f"Model input size: {input_size}")
-
-# Example label mapping (you may update this based on actual classes of the CircularNet model)
-class_map = {
-    1: "Plastic Bottle",
-    2: "Plastic Bag",
-    3: "Plastic Container",
-    4: "Glass",
-    5: "Metal",
-    6: "Paper",
-    7: "Can",
-    8: "Other Plastic"
+# ---------- lazy globals ----------
+hub_model_fn = None           # will hold the TF-Hub model
+input_size   = (224, 224)     # dummy default; replaced after load
+CONFIDENCE_THRESHOLD = 0.2
+class_map = {  # example mapping
+    1: "Plastic Bottle", 2: "Plastic Bag", 3: "Plastic Container",
+    4: "Glass", 5: "Metal", 6: "Paper", 7: "Can", 8: "Other Plastic"
 }
 plastic_ids = [1, 2, 3, 8]
-CONFIDENCE_THRESHOLD = 0.2
+# ----------------------------------
 
-# Dummy preprocessing (customize if Kaggle model expects specific format)
-def build_inputs_for_segmentation(img_np):
-    img_np = img_np / 255.0  # Normalize to [0,1] if needed
-    return img_np
+@app.on_event("startup")
+async def load_model():
+    """Download & load CircularNet _after_ the server is already running."""
+    global hub_model_fn, input_size
+    print("⬇️  Downloading CircularNet model…")
+    hub_model = hub.load(
+        "https://www.kaggle.com/models/google/circularnet/TensorFlow2/1/1")
+    hub_model_fn = hub_model.signatures["serving_default"]
+
+    h = hub_model_fn.structured_input_signature[1]['inputs'].shape[1]
+    w = hub_model_fn.structured_input_signature[1]['inputs'].shape[2]
+    input_size = (h, w)
+    print(f"✅ CircularNet loaded. Input size = {input_size}")
+
+def preprocess(img_np):
+    return img_np / 255.0      # normalise to [0, 1]
 
 @app.post("/predict")
 async def predict(image: UploadFile = File(...)):
-    # Step 1: Load and preprocess image
-    image_bytes = await image.read()
-    pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    image_np = np.array(pil_image)
-    
-    # Resize image to model input size
-    image_resized = cv2.resize(image_np, input_size[::-1], interpolation=cv2.INTER_AREA)
-    
-    # Preprocess and expand dims
-    image_ready = build_inputs_for_segmentation(image_resized)
-    image_ready = tf.expand_dims(image_ready, axis=0)
+    # ⇢ make sure model is ready
+    if hub_model_fn is None:
+        return {"error": "Model is still loading. Try again in a few seconds."}
 
-    # Step 2: Run inference
-    results = hub_model_fn(image_ready)
-    scores = results['detection_scores'].numpy()[0]
-    classes = results['detection_classes'].numpy()[0].astype(int)
-    boxes = results['detection_boxes'].numpy()[0]
+    # 1️⃣ read & resize
+    img = Image.open(io.BytesIO(await image.read())).convert("RGB")
+    img_np = cv2.resize(np.array(img), input_size[::-1])
+    img_np = preprocess(img_np)[None, ...]      # add batch dim
 
-    # Step 3: Filter and format results
-    detected = []
-    for i in range(len(scores)):
-        if scores[i] > CONFIDENCE_THRESHOLD and classes[i] in plastic_ids:
-            label = class_map.get(classes[i], f"Class {classes[i]}")
-            detected.append({
-                "label": label,
-                "score": float(scores[i]),
-                "box": boxes[i].tolist()
-            })
+    # 2️⃣ inference
+    out     = hub_model_fn(tf.convert_to_tensor(img_np))
+    scores  = out['detection_scores'][0].numpy()
+    classes = out['detection_classes'][0].numpy().astype(int)
+    boxes   = out['detection_boxes'][0].numpy()
 
-    count = Counter([d["label"] for d in detected])
+    # 3️⃣ filter plastics
+    detections = []
+    for s, c, b in zip(scores, classes, boxes):
+        if s > CONFIDENCE_THRESHOLD and c in plastic_ids:
+            detections.append(
+                {"label": class_map.get(c, f"Class {c}"),
+                 "score": float(s),
+                 "box":   b.tolist()}
+            )
+
     return {
-        "detections": detected,
-        "class_counts": dict(count)
+        "detections": detections,
+        "class_counts": dict(Counter(d["label"] for d in detections))
     }
+
+# ——— entry-point ———
 if __name__ == "__main__":
-    import os 
-    import uvicorn
-    port = int(os.environ.get("PORT", 10000))  # Use Render's port
+    port = int(os.environ.get("PORT", 8000))
+    print(f"🚀 Starting server on {port}…")
     uvicorn.run("main:app", host="0.0.0.0", port=port)
