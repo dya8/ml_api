@@ -80,5 +80,5 @@ async def predict(image: UploadFile = File(...)):
 if __name__ == "__main__":
     import os 
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))  # Use Render's port
+    port = int(os.environ.get("PORT", 10000))  # Use Render's port
     uvicorn.run("main:app", host="0.0.0.0", port=port)
