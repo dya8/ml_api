@@ -4,6 +4,8 @@ import tensorflow_hub as hub
 import numpy as np
 from PIL import Image
 import io
+import os
+import uvicorn
 import cv2
 from collections import Counter
 
@@ -75,5 +77,8 @@ async def predict(image: UploadFile = File(...)):
         "detections": detected,
         "class_counts": dict(count)
     }
-import os
-print("FastAPI running on port:", os.environ.get("PORT", "8000"))
+if __name__ == "__main__":
+    import os 
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))  # Use Render's port
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
